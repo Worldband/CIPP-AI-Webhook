@@ -1,3 +1,23 @@
+function Get-FirstValue {
+    param(
+        [AllowNull()]
+        [object[]]$Values,
+
+        [string]$Default = "Unknown"
+    )
+
+    if ($null -eq $Values) {
+        return $Default
+    }
+
+    foreach ($Value in $Values) {
+        if ($null -ne $Value -and -not [string]::IsNullOrWhiteSpace([string]$Value)) {
+            return [string]$Value
+        }
+    }
+
+    return $Default
+}
 using namespace System.Net
 
 param($Request, $TriggerMetadata)
