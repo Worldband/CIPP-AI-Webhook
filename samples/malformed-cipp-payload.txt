@@ -1,0 +1,4 @@
+You've setup your alert policies to be alerted whenever specific events happen. We've found some of these events in the log.
+
+{ "tenantId": "281bc572-b604-410e-98e4-681db429a175", "Tenant": "townofblackstone.org", "TaskInfo": { "Name": "Offboarding: clovett@townofblackstone.org", "Parameters": { "Username": "clovett@townofblackstone.org", "Headers": { "x-ms-client-principal-name": "cryan@wbtech.us" }, "options": { "AccessNoAutomap": [ { "label": "Lauren Taylor", "addedFields": , "rawData": { "displayName": "Lauren Taylor" } } ] } }, "Results": "Planned" }, "Results": [ { "Results": "Successfully revoked sessions for clovett@townofblackstone.org" }, { "Results": "Failed to execute Set-CIPPSignInState: AD Sync enabled." } ] }
+see less
