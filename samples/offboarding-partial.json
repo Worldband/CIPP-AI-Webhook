@@ -1,0 +1,40 @@
+{
+  "Tenant": "wbsandbox.us",
+  "TaskInfo": {
+    "Command": "Invoke-CIPPOffboardingJob",
+    "Name": "Offboarding: tu1@wbsandbox.us",
+    "Results": "Planned",
+    "Parameters": {
+      "Username": "tu1@wbsandbox.us",
+      "Headers": {
+        "x-ms-client-principal-name": "CRoy@wbtech.us"
+      }
+    }
+  },
+  "Results": [
+    {
+      "Results": "Successfully revoked sessions for tu1@wbsandbox.us"
+    },
+    {
+      "Results": "Successfully set account enabled state to False for tu1@wbsandbox.us"
+    },
+    {
+      "Results": "Successfully added task: Remove License: tu1@wbsandbox.us. It will run in about 4 minutes."
+    },
+    {
+      "Results": "Scheduled license removal for tu1@wbsandbox.us"
+    },
+    {
+      "Results": "Failed to execute Set-CIPPMailboxType: Object could not be found."
+    },
+    {
+      "Results": "Could not remove mailbox permissions: No mailbox data found in reporting database."
+    },
+    {
+      "Results": "No MFA methods found for user tu1@wbsandbox.us"
+    },
+    {
+      "Results": "tu1@wbsandbox.us is not a member of any groups."
+    }
+  ]
+}

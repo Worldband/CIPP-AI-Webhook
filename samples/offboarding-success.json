@@ -1,0 +1,43 @@
+{
+  "Tenant": "millburyma.gov",
+  "TaskInfo": {
+    "Command": "Invoke-CIPPOffboardingJob",
+    "Name": "Offboarding: gdonnelly@millburyma.gov",
+    "Results": "Processing",
+    "Parameters": {
+      "Username": "gdonnelly@millburyma.gov",
+      "Headers": {
+        "x-ms-client-principal-name": "CRoy@wbtech.us"
+      }
+    }
+  },
+  "Results": [
+    {
+      "Results": "Successfully set account enabled state to False for gdonnelly@millburyma.gov"
+    },
+    {
+      "Results": "Successfully added task: Remove License: gdonnelly@millburyma.gov. It will run in about 3 minutes."
+    },
+    {
+      "Results": "Scheduled license removal for gdonnelly@millburyma.gov"
+    },
+    {
+      "Results": "No mailbox permissions found for gdonnelly@millburyma.gov in cached data"
+    },
+    {
+      "Results": "Successfully hidden gdonnelly@millburyma.gov from GAL."
+    },
+    {
+      "Results": "Successfully converted gdonnelly@millburyma.gov to a Shared mailbox"
+    },
+    {
+      "Results": "Successfully revoked sessions for gdonnelly@millburyma.gov"
+    },
+    {
+      "Results": "Successfully removed gdonnelly@millburyma.gov from group 'Town of Millbury'"
+    },
+    {
+      "Results": "No MFA methods found for user gdonnelly@millburyma.gov"
+    }
+  ]
+}
