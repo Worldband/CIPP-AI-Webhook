@@ -157,12 +157,56 @@ $TargetUser = Get-FirstValue -Values @(
     $Body.targetUser
 ) -Default "Unknown User"
 
+
+# ===============================
+# REQUESTER DECODE / NORMALIZATION
+# ===============================
+$DecodedRequester = ""
+
+try {
+    $EncodedPrincipal = Get-FirstValue -Values @(
+        $CippEvent.TaskInfo.Parameters.Headers."x-ms-client-principal",
+        $CippEvent.task.Parameters.Headers."x-ms-client-principal",
+        $CippEvent.Headers."x-ms-client-principal",
+        $Body.TaskInfo.Parameters.Headers."x-ms-client-principal",
+        $Body.Headers."x-ms-client-principal"
+    ) -Default ""
+
+    if (-not [string]::IsNullOrWhiteSpace($EncodedPrincipal)) {
+        $DecodedJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedPrincipal))
+        $DecodedObject = $DecodedJson | ConvertFrom-Json -ErrorAction Stop
+
+        $DecodedRequester = Get-FirstValue -Values @(
+            $DecodedObject.userDetails,
+            $DecodedObject.userId
+        ) -Default ""
+    }
+}
+catch {
+    $DecodedRequester = ""
+}
+
 $RequestedBy = Get-FirstValue -Values @(
+    $DecodedRequester,
+
+    # Standard CIPP TaskInfo webhook
     $CippEvent.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
     $CippEvent.task.Parameters.Headers."x-ms-client-principal-name",
     $CippEvent.Headers."x-ms-client-principal-name",
     $Body.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
     $Body.Headers."x-ms-client-principal-name",
+
+    # Wrapped CIPP Logbook / Notification payload
+    $CippEvent.Username,
+    $CippEvent.username,
+    $CippEvent.User,
+    $CippEvent.user,
+    $Body.payload[0].Username,
+    $Body.payload[0].username,
+    $Body.payload[0].User,
+    $Body.payload[0].user,
+
+    # Generic fallback fields
     $CippEvent.RequestedBy,
     $CippEvent.requestedBy,
     $Body.RequestedBy,
@@ -175,7 +219,7 @@ $RequestedBy = Get-FirstValue -Values @(
     $CippEvent.initiatedBy,
     $Body.InitiatedBy,
     $Body.initiatedBy
-) -Default "Unknown"
+) -Default "Not included in CIPP payload"
 
 $Action = Get-FirstValue -Values @(
     $CippEvent.TaskInfo.Name,
@@ -287,6 +331,32 @@ if ($ResultsArray.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($Message)) 
 if ($ResultsArray.Count -eq 0) {
     $ResultsArray += "No specific results were included in the CIPP payload."
 }
+
+# ===============================
+# CLEAN RESULTS FOR TEAMS SUMMARY
+# ===============================
+$CleanResultsArray = @()
+
+foreach ($Line in $ResultsArray) {
+    $CleanLine = [string]$Line
+
+    if (-not [string]::IsNullOrWhiteSpace($TargetUser) -and $TargetUser -ne "Unknown User") {
+        $CleanLine = $CleanLine -replace [regex]::Escape($TargetUser), "the user"
+    }
+
+    $CleanLine = $CleanLine `
+        -replace "on 'SA1PR[^']+'", "" `
+        -replace "on 'SJ0PR[^']+'", "" `
+        -replace "on 'BY1PR[^']+'", "" `
+        -replace "on 'BL4PR[^']+'", "" `
+        -replace "Ex[0-9A-Fa-f]+\|Microsoft\.[^|]+\|", "" `
+        -replace "\s{2,}", " "
+
+    if (-not [string]::IsNullOrWhiteSpace($CleanLine)) {
+        $CleanResultsArray += $CleanLine.Trim()
+    }
+}
+
 
 # ===============================
 # STATUS LOGIC
@@ -440,7 +510,7 @@ Status: $FinalStatus
 CIPP Reference: $CippReference
 
 Results:
-$($ResultsArray -join "`n")
+$($CleanResultsArray -join "`n")
 
 Raw Payload Preview:
 $RawString
@@ -493,7 +563,7 @@ Action: $Action
 Status: $FinalStatus
 
 Completed Actions:
-$($ResultsArray -join "`n")
+$($CleanResultsArray -join "`n")
 
 Issues:
 Review the results above for any failed actions.
