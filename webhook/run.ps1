@@ -286,6 +286,25 @@ Write-Host "[$TimeStamp] Action: $Action"
 Write-Host "[$TimeStamp] Status: $FinalStatus"
 
 # ===============================
+# RAW PAYLOAD REFERENCE
+# ===============================
+$PayloadPreview = ""
+
+try {
+    $PayloadPreview = $RawString
+
+    if ($PayloadPreview.Length -gt 2000) {
+        $PayloadPreview = $PayloadPreview.Substring(0, 2000) + "... [truncated]"
+    }
+
+    $PayloadPreview = $PayloadPreview -replace "`r", "" -replace "`n", " "
+}
+catch {
+    $PayloadPreview = "Raw payload preview unavailable"
+}
+
+
+# ===============================
 # OPENAI SUMMARY
 # ===============================
 $Summary = ""
@@ -375,6 +394,10 @@ $RawString
         throw "OpenAI returned an empty response"
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($PayloadPreview)) {
+        $Summary += "`n`nReference Payload Preview:`n$PayloadPreview"
+    }
+
     Write-Host "[$TimeStamp] OpenAI summarization succeeded"
 }
 catch {
@@ -400,6 +423,9 @@ AI summarization failed. This is fallback output.
 
 Reference:
 $CippReference
+
+Reference Payload Preview:
+$PayloadPreview
 "@
 }
 
