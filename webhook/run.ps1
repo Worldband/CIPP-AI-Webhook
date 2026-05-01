@@ -312,24 +312,27 @@ try {
     $Prompt = @"
 You are an MSP automation assistant.
 
-Create a clean, professional Microsoft Teams message. Do not use emojis.
+Analyze the raw incoming webhook or Teams command and create a clean Microsoft Teams message. Do not use emojis.
 
-Rules:
+Important:
+- Use the RAW INPUT as the source of truth.
+- The parsed fields may be incomplete or Unknown.
 - Do not invent facts.
-- If a value is unknown, keep it as Unknown.
-- Use concise technician-friendly language.
-- If there are mixed successes and failures, status must remain Partial.
-- For Teams command requests, acknowledge the request and state that no CIPP execution has been performed unless the data explicitly says it was performed.
+- If this is a Teams command, summarize the request only. Do not claim the CIPP action was executed unless the input explicitly says it was executed.
+- If the tenant can be inferred from the email domain, use the domain as the tenant.
+- If the user can be inferred from the raw input, use that user.
+- If the action can be inferred from the raw input, use that action.
+- If information is missing, say what is missing.
 
 Format exactly:
 
 Title: <short title>
 
-Tenant: <tenant>
-User: <target user>
-Requested By: <requester>
-Action: <action>
-Status: <status>
+Tenant: <tenant or Unknown>
+User: <target user or Unknown>
+Requested By: <requester or Unknown>
+Action: <action or Unknown>
+Status: <status or Request Received>
 
 Completed Actions:
 - <completed item or None>
@@ -340,7 +343,10 @@ Issues:
 Notes:
 - <important note or None>
 
-Data:
+RAW INPUT:
+$RawString
+
+Parsed Fields:
 Tenant: $Tenant
 User: $User
 Requested By: $Requester
