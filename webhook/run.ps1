@@ -579,6 +579,45 @@ $PayloadPreview
 "@
 }
 
+
+# ===============================
+# FULL PAYLOAD (FOR TEAMS EXPAND)
+# ===============================
+$FullPayload = ""
+
+try {
+    $RawJson = ""
+
+    if ($Request.Body -is [string]) {
+        $RawJson = $Request.Body
+    } else {
+        $RawJson = $Request.Body | ConvertTo-Json -Depth 20
+    }
+
+    # Truncate to avoid Teams size issues (~25KB safe zone)
+    if ($RawJson.Length -gt 25000) {
+        $RawJson = $RawJson.Substring(0, 25000) + "`n... [TRUNCATED]"
+    }
+
+    # Escape for HTML
+    $EscapedJson = $RawJson `
+        -replace "&", "&amp;" `
+        -replace "<", "&lt;" `
+        -replace ">", "&gt;"
+
+    $FullPayload = @"
+<details>
+<summary><b>Show Raw Payload</b></summary>
+
+<pre>$EscapedJson</pre>
+
+</details>
+"@
+}
+catch {
+    $FullPayload = ""
+}
+
 # ===============================
 # SEND TO TEAMS
 # ===============================
@@ -587,7 +626,9 @@ try {
         throw "Missing TEAMS_WEBHOOK_URL environment variable"
     }
 
-    $TeamsBody = @{
+    $Summary = $Summary + "`n`n" + $FullPayload
+
+$TeamsBody = @{
         text = $Summary
     } | ConvertTo-Json -Depth 5
 
