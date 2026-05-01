@@ -158,16 +158,23 @@ $TargetUser = Get-FirstValue -Values @(
 ) -Default "Unknown User"
 
 $RequestedBy = Get-FirstValue -Values @(
+    $CippEvent.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
+    $CippEvent.task.Parameters.Headers."x-ms-client-principal-name",
+    $CippEvent.Headers."x-ms-client-principal-name",
     $Body.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
     $Body.Headers."x-ms-client-principal-name",
+    $CippEvent.RequestedBy,
+    $CippEvent.requestedBy,
     $Body.RequestedBy,
     $Body.requestedBy,
+    $CippEvent.Actor,
+    $CippEvent.actor,
     $Body.Actor,
     $Body.actor,
+    $CippEvent.InitiatedBy,
+    $CippEvent.initiatedBy,
     $Body.InitiatedBy,
-    $Body.initiatedBy,
-    $Body.User,
-    $Body.user
+    $Body.initiatedBy
 ) -Default "Unknown"
 
 $Action = Get-FirstValue -Values @(
