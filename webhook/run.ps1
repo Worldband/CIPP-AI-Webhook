@@ -229,6 +229,21 @@ $Message = Get-FirstValue -Values @(
     $Body.raw
 ) -Default ""
 
+# Infer target user from action/title when CIPP wrapped payload does not expose username separately
+if ($TargetUser -eq "Unknown User") {
+    if ($Action -match '(?i)offboarding:\s*([^\s]+@[^\s]+)') {
+        $TargetUser = $Matches[1]
+    }
+    elseif ($RawString -match '(?i)offboarding:\s*([^\s",]+@[^\s",]+)') {
+        $TargetUser = $Matches[1]
+    }
+}
+
+# Make missing requester explicit instead of looking like a parsing failure
+if ($RequestedBy -eq "Unknown") {
+    $RequestedBy = "Not included in CIPP payload"
+}
+
 # ===============================
 # RESULT COLLECTION
 # ===============================
@@ -385,7 +400,14 @@ Rules:
 - If there are both successful and failed actions, status must be Partial.
 - Separate completed actions from issues.
 - Treat "No MFA methods found" and "not a member of any groups" as notes, not failures.
+- Do not repeat the target user in every bullet. Since the entire event is already for the target user, write short bullets like "Disabled sign-in", "Revoked sessions", "Scheduled license removal".
+- Do not include long Exchange server names, GUIDs, or backend exception noise unless needed to understand the issue.
+- Compress duplicate mailbox permission failures into one summarized issue.
+- Keep Completed Actions to the most important 8 items maximum.
+- Keep Issues to the most important 8 items maximum.
+- If Requested By is "Not included in CIPP payload", keep that exact wording.
 - At the bottom, if CIPP Reference exists, include: Reference: <value>
+- Do not include the raw payload preview in the main AI summary. It is appended separately by the script.
 
 Format exactly:
 
