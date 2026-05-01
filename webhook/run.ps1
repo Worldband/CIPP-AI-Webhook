@@ -15,12 +15,13 @@ $TimeStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[$TimeStamp] Webhook received"
 
 # ===============================
-# SAFE HELPER FUNCTION
+# SAFE HELPER FUNCTIONS
 # ===============================
 function Get-FirstValue {
     param(
         [AllowNull()]
         [object[]]$Values,
+
         [string]$Default = "Unknown"
     )
 
@@ -37,67 +38,160 @@ function Get-FirstValue {
     return $Default
 }
 
+function Convert-ToSafeString {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return ""
+    }
+
+    try {
+        if ($Value -is [string]) {
+            return $Value
+        }
+
+        return ($Value | ConvertTo-Json -Depth 20 -Compress)
+    }
+    catch {
+        return [string]$Value
+    }
+}
+
 # ===============================
-# PARSE INPUT (SAFE)
+# PARSE INPUT SAFELY
 # ===============================
 $Body = $null
 $RawString = ""
 
 try {
-    $RawString = $Request.Body
+    $RawString = Convert-ToSafeString -Value $Request.Body
 
-    if ($RawString -isnot [string]) {
-        $RawString = $RawString | ConvertTo-Json -Depth 20
+    if ([string]::IsNullOrWhiteSpace($RawString)) {
+        $RawString = "{}"
     }
 
     try {
         $Body = $RawString | ConvertFrom-Json -ErrorAction Stop
+        Write-Host "[$TimeStamp] JSON parsed successfully"
     }
     catch {
-        Write-Host "[$TimeStamp] JSON parsing failed — using raw mode"
-        $Body = @{}
+        Write-Host "[$TimeStamp] JSON parsing failed. Attempting basic repair."
+
+        try {
+            $FixedJson = $RawString `
+                -replace "'", '"' `
+                -replace ':\s*,', ': null,' `
+                -replace ',\s*}', '}' `
+                -replace ',\s*]', ']'
+
+            $Body = $FixedJson | ConvertFrom-Json -ErrorAction Stop
+            Write-Host "[$TimeStamp] JSON repair succeeded"
+        }
+        catch {
+            Write-Host "[$TimeStamp] JSON repair failed. Continuing in raw text mode."
+            $Body = [pscustomobject]@{
+                raw = $RawString
+            }
+        }
     }
 }
 catch {
-    Write-Host "[$TimeStamp] Request parsing failed"
-    $Body = @{}
+    Write-Host "[$TimeStamp] Request parsing failed. Continuing with empty body."
+    $Body = [pscustomobject]@{
+        raw = ""
+    }
 }
 
 # ===============================
-# EXTRACT DATA (SAFE)
+# EXTRACT DATA SAFELY
+# Supports CIPP scheduled task payloads, CIPP logbook alerts, Teams command payloads, and raw text.
 # ===============================
-$Tenant = Get-FirstValue @(
+$Tenant = Get-FirstValue -Values @(
     $Body.Tenant,
+    $Body.tenant,
+    $Body.CustomerTenant,
+    $Body.customerTenant,
     $Body.TaskInfo.Tenant,
     $Body.TaskInfo.Parameters.TenantFilter,
     $Body.TaskInfo.Parameters.options.HIDDEN_appliedDefaultsForTenant
-) "Unknown Tenant"
+) -Default "Unknown Tenant"
 
-$User = Get-FirstValue @(
+$User = Get-FirstValue -Values @(
     $Body.TaskInfo.Parameters.Username,
     $Body.User,
     $Body.user,
     $Body.UPN,
-    $Body.username
-) "Unknown User"
+    $Body.upn,
+    $Body.Username,
+    $Body.username,
+    $Body.TargetUser,
+    $Body.targetUser
+) -Default "Unknown User"
 
-$Requester = Get-FirstValue @(
+$Requester = Get-FirstValue -Values @(
     $Body.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
     $Body.Headers."x-ms-client-principal-name",
     $Body.RequestedBy,
     $Body.requestedBy,
     $Body.Actor,
-    $Body.actor
-) "Unknown"
+    $Body.actor,
+    $Body.InitiatedBy,
+    $Body.initiatedBy,
+    $Body.User,
+    $Body.user
+) -Default "Unknown"
 
-$Action = Get-FirstValue @(
+$Action = Get-FirstValue -Values @(
     $Body.TaskInfo.Name,
     $Body.TaskInfo.Command,
     $Body.Action,
     $Body.action,
+    $Body.API,
+    $Body.api,
     $Body.Event,
-    $Body.event
-) "Unknown Action"
+    $Body.event,
+    $Body.Operation,
+    $Body.operation
+) -Default "Unknown Action"
+
+$Message = Get-FirstValue -Values @(
+    $Body.Message,
+    $Body.message,
+    $Body.Text,
+    $Body.text,
+    $Body.body,
+    $Body.TaskInfo.Results,
+    $Body.raw
+) -Default "No specific results available"
+
+# ===============================
+# TEAMS COMMAND DETECTION
+# ===============================
+$IsTeamsCommand = $false
+$TeamsCommandText = Get-FirstValue -Values @(
+    $Body.message,
+    $Body.text,
+    $Body.Text,
+    $Body.body
+) -Default ""
+
+if (-not [string]::IsNullOrWhiteSpace($TeamsCommandText)) {
+    $IsTeamsCommand = $true
+    $Action = "Teams Command"
+    $Message = $TeamsCommandText
+
+    if ($TeamsCommandText -match '(?i)\boffboard\s+user\s+([^\s<]+)') {
+        $Action = "Offboarding Request"
+        $User = $Matches[1]
+    }
+    elseif ($TeamsCommandText -match '(?i)\boffboard\s+([^\s<]+)') {
+        $Action = "Offboarding Request"
+        $User = $Matches[1]
+    }
+}
 
 # ===============================
 # RESULTS HANDLING
@@ -105,32 +199,104 @@ $Action = Get-FirstValue @(
 $ResultsArray = @()
 
 if ($Body.Results) {
-    foreach ($r in $Body.Results) {
-        if ($r.Results) {
-            $ResultsArray += $r.Results
+    if ($Body.Results -is [string]) {
+        $ResultsArray += $Body.Results
+    }
+    else {
+        foreach ($ResultItem in $Body.Results) {
+            $ResultText = Get-FirstValue -Values @(
+                $ResultItem.Results,
+                $ResultItem.Message,
+                $ResultItem.message,
+                $ResultItem.Result,
+                $ResultItem.result,
+                $ResultItem
+            ) -Default ""
+
+            if (-not [string]::IsNullOrWhiteSpace($ResultText)) {
+                $ResultsArray += $ResultText
+            }
         }
     }
+}
+
+if ($ResultsArray.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($Message)) {
+    $ResultsArray += $Message
+}
+
+if ($ResultsArray.Count -eq 0) {
+    $ResultsArray += "No specific results available"
 }
 
 # ===============================
 # STATUS LOGIC
 # ===============================
-$Success = ($ResultsArray | Where-Object { $_ -match "Successfully|Scheduled|Added" }).Count
-$Fail    = ($ResultsArray | Where-Object { $_ -match "Failed|Error|Unable|Could not" }).Count
+$SuccessPatterns = @(
+    "Successfully",
+    "Success",
+    "Scheduled",
+    "Added",
+    "Completed",
+    "Executed",
+    "Updated",
+    "Removed",
+    "Revoked",
+    "Converted",
+    "Hidden"
+)
 
-if ($Success -gt 0 -and $Fail -gt 0) {
+$FailurePatterns = @(
+    "Failed",
+    "Error",
+    "Unable",
+    "Could not",
+    "Cannot",
+    "Exception",
+    "Denied",
+    "Unauthorized",
+    "Not found",
+    "NotFound"
+)
+
+$SuccessCount = 0
+$FailureCount = 0
+
+foreach ($Line in $ResultsArray) {
+    foreach ($Pattern in $SuccessPatterns) {
+        if ($Line -match $Pattern) {
+            $SuccessCount++
+            break
+        }
+    }
+
+    foreach ($Pattern in $FailurePatterns) {
+        if ($Line -match $Pattern) {
+            $FailureCount++
+            break
+        }
+    }
+}
+
+if ($SuccessCount -gt 0 -and $FailureCount -gt 0) {
     $FinalStatus = "Partial"
 }
-elseif ($Fail -gt 0) {
+elseif ($FailureCount -gt 0) {
     $FinalStatus = "Failed"
 }
-elseif ($Success -gt 0) {
+elseif ($SuccessCount -gt 0) {
     $FinalStatus = "Success"
+}
+elseif ($IsTeamsCommand) {
+    $FinalStatus = "Received"
 }
 else {
     $FinalStatus = "Unknown"
 }
 
+Write-Host "[$TimeStamp] Tenant: $Tenant"
+Write-Host "[$TimeStamp] User: $User"
+Write-Host "[$TimeStamp] Requested By: $Requester"
+Write-Host "[$TimeStamp] Action: $Action"
 Write-Host "[$TimeStamp] Status: $FinalStatus"
 
 # ===============================
@@ -139,13 +305,42 @@ Write-Host "[$TimeStamp] Status: $FinalStatus"
 $Summary = ""
 
 try {
-    if (-not $OpenAIKey) {
-        throw "Missing OpenAI key"
+    if ([string]::IsNullOrWhiteSpace($OpenAIKey)) {
+        throw "Missing OPENAI_API_KEY environment variable"
     }
 
     $Prompt = @"
-Summarize this MSP automation event clearly.
+You are an MSP automation assistant.
 
+Create a clean, professional Microsoft Teams message. Do not use emojis.
+
+Rules:
+- Do not invent facts.
+- If a value is unknown, keep it as Unknown.
+- Use concise technician-friendly language.
+- If there are mixed successes and failures, status must remain Partial.
+- For Teams command requests, acknowledge the request and state that no CIPP execution has been performed unless the data explicitly says it was performed.
+
+Format exactly:
+
+Title: <short title>
+
+Tenant: <tenant>
+User: <target user>
+Requested By: <requester>
+Action: <action>
+Status: <status>
+
+Completed Actions:
+- <completed item or None>
+
+Issues:
+- <issue item or None>
+
+Notes:
+- <important note or None>
+
+Data:
 Tenant: $Tenant
 User: $User
 Requested By: $Requester
@@ -154,35 +349,43 @@ Status: $FinalStatus
 
 Results:
 $($ResultsArray -join "`n")
-
-Format clean for Microsoft Teams.
 "@
 
-    $RequestBody = @{
+    $OpenAIRequest = @{
         model = "gpt-4o-mini"
         messages = @(
-            @{ role = "user"; content = $Prompt }
+            @{
+                role = "user"
+                content = $Prompt
+            }
         )
         temperature = 0.2
-    } | ConvertTo-Json -Depth 5
+        max_tokens = 500
+    } | ConvertTo-Json -Depth 10
 
-    $Response = Invoke-RestMethod `
+    $OpenAIResponse = Invoke-RestMethod `
         -Uri "https://api.openai.com/v1/chat/completions" `
         -Headers @{
             Authorization = "Bearer $OpenAIKey"
             "Content-Type" = "application/json"
         } `
         -Method POST `
-        -Body $RequestBody
+        -Body $OpenAIRequest `
+        -TimeoutSec 45
 
-    $Summary = $Response.choices[0].message.content
-    Write-Host "[$TimeStamp] AI success"
+    $Summary = $OpenAIResponse.choices[0].message.content
+
+    if ([string]::IsNullOrWhiteSpace($Summary)) {
+        throw "OpenAI returned an empty response"
+    }
+
+    Write-Host "[$TimeStamp] OpenAI summarization succeeded"
 }
 catch {
-    Write-Host "[$TimeStamp] AI failed — fallback"
+    Write-Host "[$TimeStamp] OpenAI summarization failed. Using fallback. Error: $($_.Exception.Message)"
 
     $Summary = @"
-CIPP Event
+Title: MSP Automation Event
 
 Tenant: $Tenant
 User: $User
@@ -190,8 +393,14 @@ Requested By: $Requester
 Action: $Action
 Status: $FinalStatus
 
-Results:
+Completed Actions:
 $($ResultsArray -join "`n")
+
+Issues:
+None
+
+Notes:
+AI summarization failed. Review raw results above.
 "@
 }
 
@@ -199,22 +408,44 @@ $($ResultsArray -join "`n")
 # SEND TO TEAMS
 # ===============================
 try {
+    if ([string]::IsNullOrWhiteSpace($TeamsWebhook)) {
+        throw "Missing TEAMS_WEBHOOK_URL environment variable"
+    }
+
     $TeamsBody = @{
         text = $Summary
-    } | ConvertTo-Json
+    } | ConvertTo-Json -Depth 5
 
-    Invoke-RestMethod -Method POST -Uri $TeamsWebhook -Body $TeamsBody -ContentType "application/json"
+    Invoke-RestMethod `
+        -Method POST `
+        -Uri $TeamsWebhook `
+        -Body $TeamsBody `
+        -ContentType "application/json" `
+        -TimeoutSec 30
 
     Write-Host "[$TimeStamp] Sent to Teams"
 }
 catch {
-    Write-Host "[$TimeStamp] Teams send failed"
+    Write-Host "[$TimeStamp] Teams send failed. Error: $($_.Exception.Message)"
 }
 
 # ===============================
 # RESPONSE
 # ===============================
+$ResponseBody = @{
+    status = "processed"
+    tenant = $Tenant
+    user = $User
+    requestedBy = $Requester
+    action = $Action
+    finalStatus = $FinalStatus
+    message = $Summary
+} | ConvertTo-Json -Depth 10
+
 Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
     StatusCode = 200
-    Body = "Processed"
+    Body = $ResponseBody
+    Headers = @{
+        "Content-Type" = "application/json"
+    }
 })
