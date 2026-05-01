@@ -105,18 +105,47 @@ catch {
     return
 }
 
+
+# ===============================
+# NORMALIZE WRAPPED CIPP PAYLOAD
+# ===============================
+$CippEvent = $Body
+
+try {
+    if ($Body.payload -and $Body.payload.Count -gt 0) {
+        $CippEvent = $Body.payload[0]
+        Write-Host "[$TimeStamp] Detected wrapped CIPP payload format"
+    }
+}
+catch {
+    $CippEvent = $Body
+}
+
 # ===============================
 # EXTRACT CIPP DATA
 # ===============================
 $Tenant = Get-FirstValue -Values @(
     $Body.Tenant,
     $Body.tenant,
+    $CippEvent.Tenant,
+    $CippEvent.tenant,
+    $Body.tenant,
+    $CippEvent.TaskInfo.Tenant,
+    $CippEvent.task.Tenant,
     $Body.TaskInfo.Tenant,
+    $CippEvent.TaskInfo.Parameters.TenantFilter,
+    $CippEvent.task.Parameters.TenantFilter,
     $Body.TaskInfo.Parameters.TenantFilter,
+    $CippEvent.TaskInfo.Parameters.options.HIDDEN_appliedDefaultsForTenant,
+    $CippEvent.task.Parameters.options.HIDDEN_appliedDefaultsForTenant,
     $Body.TaskInfo.Parameters.options.HIDDEN_appliedDefaultsForTenant
 ) -Default "Unknown Tenant"
 
 $TargetUser = Get-FirstValue -Values @(
+    $CippEvent.TaskInfo.Parameters.Username,
+    $CippEvent.task.Parameters.Username,
+    $CippEvent.task.user,
+    $CippEvent.user,
     $Body.TaskInfo.Parameters.Username,
     $Body.Username,
     $Body.username,
@@ -142,7 +171,13 @@ $RequestedBy = Get-FirstValue -Values @(
 ) -Default "Unknown"
 
 $Action = Get-FirstValue -Values @(
+    $CippEvent.TaskInfo.Name,
+    $CippEvent.task.Name,
+    $CippEvent.task.name,
     $Body.TaskInfo.Name,
+    $CippEvent.TaskInfo.Command,
+    $CippEvent.task.Command,
+    $CippEvent.task.command,
     $Body.TaskInfo.Command,
     $Body.Action,
     $Body.action,
@@ -155,6 +190,9 @@ $Action = Get-FirstValue -Values @(
 ) -Default "Unknown Action"
 
 $TaskState = Get-FirstValue -Values @(
+    $CippEvent.TaskInfo.TaskState,
+    $CippEvent.task.TaskState,
+    $CippEvent.task.state,
     $Body.TaskInfo.TaskState,
     $Body.TaskState,
     $Body.status,
@@ -164,6 +202,9 @@ $TaskState = Get-FirstValue -Values @(
 ) -Default "Unknown"
 
 $CippReference = Get-FirstValue -Values @(
+    $CippEvent.TaskInfo.RowKey,
+    $CippEvent.task.RowKey,
+    $CippEvent.task.id,
     $Body.TaskInfo.RowKey,
     $Body.TaskInfo.Reference,
     $Body.Reference,
@@ -186,12 +227,22 @@ $Message = Get-FirstValue -Values @(
 # ===============================
 $ResultsArray = @()
 
-if ($Body.Results) {
-    if ($Body.Results -is [string]) {
-        $ResultsArray += $Body.Results
+if ($CippEvent.results) {
+    $BodyResults = $CippEvent.results
+}
+elseif ($CippEvent.Results) {
+    $BodyResults = $CippEvent.Results
+}
+else {
+    $BodyResults = $Body.Results
+}
+
+if ($BodyResults) {
+    if ($BodyResults -is [string]) {
+        $ResultsArray += $BodyResults
     }
     else {
-        foreach ($ResultItem in $Body.Results) {
+        foreach ($ResultItem in $BodyResults) {
             $ResultText = Get-FirstValue -Values @(
                 $ResultItem.Results,
                 $ResultItem.Message,
