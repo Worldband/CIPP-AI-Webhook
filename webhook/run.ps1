@@ -221,6 +221,58 @@ $RequestedBy = Get-FirstValue -Values @(
     $Body.initiatedBy
 ) -Default "Not included in CIPP payload"
 
+
+# ===============================
+# REQUESTED BY OVERRIDE / FIX
+# ===============================
+try {
+    $DecodedRequester = ""
+
+    $EncodedPrincipal = Get-FirstValue -Values @(
+        $Body.TaskInfo.Parameters.Headers."x-ms-client-principal",
+        $Body.TaskInfo.Headers."x-ms-client-principal",
+        $Body.Headers."x-ms-client-principal",
+        $CippEvent.TaskInfo.Parameters.Headers."x-ms-client-principal",
+        $CippEvent.task.Parameters.Headers."x-ms-client-principal",
+        $CippEvent.Headers."x-ms-client-principal"
+    ) -Default ""
+
+    if (-not [string]::IsNullOrWhiteSpace($EncodedPrincipal)) {
+        $DecodedJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedPrincipal))
+        $DecodedObj = $DecodedJson | ConvertFrom-Json -ErrorAction Stop
+        $DecodedRequester = Get-FirstValue -Values @(
+            $DecodedObj.userDetails,
+            $DecodedObj.userId
+        ) -Default ""
+    }
+
+    $RequestedByFixed = Get-FirstValue -Values @(
+        $Body.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
+        $Body.TaskInfo.Headers."x-ms-client-principal-name",
+        $Body.Headers."x-ms-client-principal-name",
+        $CippEvent.TaskInfo.Parameters.Headers."x-ms-client-principal-name",
+        $CippEvent.task.Parameters.Headers."x-ms-client-principal-name",
+        $CippEvent.Headers."x-ms-client-principal-name",
+        $DecodedRequester,
+        $Body.payload[0].Username,
+        $Body.payload[0].User,
+        $CippEvent.Username,
+        $CippEvent.User
+    ) -Default ""
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedByFixed)) {
+        $RequestedBy = $RequestedByFixed
+    }
+    elseif ([string]::IsNullOrWhiteSpace($RequestedBy) -or $RequestedBy -eq "Unknown") {
+        $RequestedBy = "Not included in CIPP payload"
+    }
+}
+catch {
+    if ([string]::IsNullOrWhiteSpace($RequestedBy) -or $RequestedBy -eq "Unknown") {
+        $RequestedBy = "Not included in CIPP payload"
+    }
+}
+
 $Action = Get-FirstValue -Values @(
     $CippEvent.TaskInfo.Name,
     $CippEvent.task.Name,
