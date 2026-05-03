@@ -476,6 +476,43 @@ else {
 
 Write-Host "[$TimeStamp] Tenant: $Tenant"
 Write-Host "[$TimeStamp] Target User: $TargetUser"
+
+# ===============================
+# FINAL REQUESTED BY FALLBACK FROM RAW PAYLOAD
+# ===============================
+try {
+    if (
+        [string]::IsNullOrWhiteSpace($RequestedBy) -or
+        $RequestedBy -eq "Unknown" -or
+        $RequestedBy -eq "Not included in CIPP payload"
+    ) {
+        if ($RawString -match '"x-ms-client-principal-name"\s*:\s*"([^"]+)"') {
+            $RequestedBy = $Matches[1]
+        }
+        elseif ($RawString -match '"x-ms-client-principal"\s*:\s*"([^"]+)"') {
+            $EncodedPrincipal = $Matches[1]
+            $DecodedJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedPrincipal))
+            $DecodedObj = $DecodedJson | ConvertFrom-Json -ErrorAction Stop
+
+            if ($DecodedObj.userDetails) {
+                $RequestedBy = $DecodedObj.userDetails
+            }
+            elseif ($DecodedObj.userId) {
+                $RequestedBy = $DecodedObj.userId
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RequestedBy) -or $RequestedBy -eq "Unknown") {
+        $RequestedBy = "Not included in CIPP payload"
+    }
+}
+catch {
+    if ([string]::IsNullOrWhiteSpace($RequestedBy) -or $RequestedBy -eq "Unknown") {
+        $RequestedBy = "Not included in CIPP payload"
+    }
+}
+
 Write-Host "[$TimeStamp] Requested By: $RequestedBy"
 Write-Host "[$TimeStamp] Action: $Action"
 Write-Host "[$TimeStamp] Status: $FinalStatus"
