@@ -590,8 +590,29 @@ try {
             -ContentType $ContentType `
             -TimeoutSec 30 | Out-Null
 
-        $PayloadBlobUrl = $BlobUri
-        Write-Host "Stored payload blob: $PayloadBlobUrl"
+        # Generate temporary read-only SAS link for Teams
+        $SasStart = [DateTime]::UtcNow.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $SasExpiry = [DateTime]::UtcNow.AddDays(7).ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $SasVersion = "2018-11-09"
+        $SasPermissions = "r"
+        $SasProtocol = "https"
+        $SasResource = "b"
+
+        $CanonicalizedResource = "/blob/$StorageAccountName/$PayloadContainer/$BlobName"
+
+        $SasStringToSign = "$SasPermissions`n$SasStart`n$SasExpiry`n$CanonicalizedResource`n`n`n$SasProtocol`n$SasVersion`n$SasResource`n`n`n`n`n`n"
+
+        $SasHmac = New-Object System.Security.Cryptography.HMACSHA256
+        $SasHmac.Key = [Convert]::FromBase64String($StorageAccountKey)
+        $SasSignatureBytes = $SasHmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($SasStringToSign))
+        $SasSignature = [System.Net.WebUtility]::UrlEncode([Convert]::ToBase64String($SasSignatureBytes))
+
+        $SasToken = "sv=$SasVersion&st=$SasStart&se=$SasExpiry&spr=$SasProtocol&sr=$SasResource&sp=$SasPermissions&sig=$SasSignature"
+
+        $PayloadBlobUrl = "$BlobUri`?$SasToken"
+
+        Write-Host "Stored payload blob: $BlobUri"
+        Write-Host "Generated payload SAS URL valid for 7 days."
     }
     else {
         Write-Host "Blob upload skipped: storage environment variables are missing."
