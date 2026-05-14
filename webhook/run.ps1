@@ -201,10 +201,10 @@ $RequestedBy = Get-FirstValue -Values @(
     $CippEvent.username,
     $CippEvent.User,
     $CippEvent.user,
-    $Body.payload[0].Username,
-    $Body.payload[0].username,
-    $Body.payload[0].User,
-    $Body.payload[0].user,
+    
+    
+    
+    
 
     # Generic fallback fields
     $CippEvent.RequestedBy,
@@ -254,8 +254,8 @@ try {
         $CippEvent.task.Parameters.Headers."x-ms-client-principal-name",
         $CippEvent.Headers."x-ms-client-principal-name",
         $DecodedRequester,
-        $Body.payload[0].Username,
-        $Body.payload[0].User,
+        
+        
         $CippEvent.Username,
         $CippEvent.User
     ) -Default ""
@@ -539,6 +539,7 @@ catch {
 
 # ===============================
 # STORE FULL PAYLOAD IN BLOB STORAGE
+# Uses Azure Blob REST API so Az.Storage module is not required.
 # ===============================
 $PayloadBlobUrl = ""
 
@@ -546,35 +547,59 @@ try {
     $StorageConnectionString = $env:CIPP_PAYLOAD_STORAGE_CONNECTION_STRING
     $PayloadContainer = $env:CIPP_PAYLOAD_CONTAINER
 
-    if ($StorageConnectionString -and $PayloadContainer) {
+    if (-not [string]::IsNullOrWhiteSpace($StorageConnectionString) -and -not [string]::IsNullOrWhiteSpace($PayloadContainer)) {
+        $StorageAccountName = ($StorageConnectionString -split "AccountName=")[1].Split(";")[0]
+        $StorageAccountKey  = ($StorageConnectionString -split "AccountKey=")[1].Split(";")[0]
 
         $PayloadId = [guid]::NewGuid().ToString()
-        $BlobName = "$Tenant/$PayloadId.json"
+        $SafeTenant = if ([string]::IsNullOrWhiteSpace($Tenant) -or $Tenant -eq "Unknown Tenant" -or $Tenant -eq "None") { "unknown-tenant" } else { $Tenant }
+        $BlobName = "$SafeTenant/$PayloadId.json"
 
-        $TempFile = Join-Path $env:TEMP "$PayloadId.json"
+        $BlobUri = "https://$StorageAccountName.blob.core.windows.net/$PayloadContainer/$BlobName"
 
-        $RawString | Out-File -FilePath $TempFile -Encoding utf8 -Force
+        $PayloadBytes = [System.Text.Encoding]::UTF8.GetBytes($RawString)
+        $ContentLength = $PayloadBytes.Length
+        $ContentType = "application/json"
+        $BlobType = "BlockBlob"
+        $DateHeader = [DateTime]::UtcNow.ToString("R")
+        $ApiVersion = "2020-10-02"
 
-        $Context = New-AzStorageContext -ConnectionString $StorageConnectionString
+        $CanonicalizedHeaders = "x-ms-blob-type:$BlobType`nx-ms-date:$DateHeader`nx-ms-version:$ApiVersion`n"
+        $CanonicalizedResource = "/$StorageAccountName/$PayloadContainer/$BlobName"
 
-        Set-AzStorageBlobContent `
-            -Container $PayloadContainer `
-            -Blob $BlobName `
-            -File $TempFile `
-            -Context $Context `
-            -Force | Out-Null
+        $StringToSign = "PUT`n`n`n$ContentLength`n`n$ContentType`n`n`n`n`n`n`n$CanonicalizedHeaders$CanonicalizedResource"
 
-        $StorageAccountName = ($StorageConnectionString -split "AccountName=")[1].Split(";")[0]
+        $Hmac = New-Object System.Security.Cryptography.HMACSHA256
+        $Hmac.Key = [Convert]::FromBase64String($StorageAccountKey)
+        $SignatureBytes = $Hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($StringToSign))
+        $Signature = [Convert]::ToBase64String($SignatureBytes)
 
-        $PayloadBlobUrl = "https://$StorageAccountName.blob.core.windows.net/$PayloadContainer/$BlobName"
+        $Headers = @{
+            "Authorization" = "SharedKey $StorageAccountName`:$Signature"
+            "x-ms-date" = $DateHeader
+            "x-ms-version" = $ApiVersion
+            "x-ms-blob-type" = $BlobType
+            "Content-Type" = $ContentType
+        }
 
+        Invoke-RestMethod `
+            -Method Put `
+            -Uri $BlobUri `
+            -Headers $Headers `
+            -Body $PayloadBytes `
+            -ContentType $ContentType `
+            -TimeoutSec 30 | Out-Null
+
+        $PayloadBlobUrl = $BlobUri
         Write-Host "Stored payload blob: $PayloadBlobUrl"
+    }
+    else {
+        Write-Host "Blob upload skipped: storage environment variables are missing."
     }
 }
 catch {
     Write-Host "Blob upload failed: $($_.Exception.Message)"
 }
-
 
 # ===============================
 # OPENAI SUMMARY
