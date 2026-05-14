@@ -536,6 +536,46 @@ catch {
 }
 
 
+
+# ===============================
+# STORE FULL PAYLOAD IN BLOB STORAGE
+# ===============================
+$PayloadBlobUrl = ""
+
+try {
+    $StorageConnectionString = $env:CIPP_PAYLOAD_STORAGE_CONNECTION_STRING
+    $PayloadContainer = $env:CIPP_PAYLOAD_CONTAINER
+
+    if ($StorageConnectionString -and $PayloadContainer) {
+
+        $PayloadId = [guid]::NewGuid().ToString()
+        $BlobName = "$Tenant/$PayloadId.json"
+
+        $TempFile = Join-Path $env:TEMP "$PayloadId.json"
+
+        $RawString | Out-File -FilePath $TempFile -Encoding utf8 -Force
+
+        $Context = New-AzStorageContext -ConnectionString $StorageConnectionString
+
+        Set-AzStorageBlobContent `
+            -Container $PayloadContainer `
+            -Blob $BlobName `
+            -File $TempFile `
+            -Context $Context `
+            -Force | Out-Null
+
+        $StorageAccountName = ($StorageConnectionString -split "AccountName=")[1].Split(";")[0]
+
+        $PayloadBlobUrl = "https://$StorageAccountName.blob.core.windows.net/$PayloadContainer/$BlobName"
+
+        Write-Host "Stored payload blob: $PayloadBlobUrl"
+    }
+}
+catch {
+    Write-Host "Blob upload failed: $($_.Exception.Message)"
+}
+
+
 # ===============================
 # OPENAI SUMMARY
 # ===============================
@@ -634,7 +674,10 @@ $RawString
     }
 
     if (-not [string]::IsNullOrWhiteSpace($PayloadPreview)) {
-        $Summary += "`n`nReference Payload Preview:`n$PayloadPreview"
+        $Summary += "`n`nFull Payload Blob:
+$PayloadBlobUrl
+
+Reference Payload Preview:`n$PayloadPreview"
     }
 
     Write-Host "[$TimeStamp] OpenAI summarization succeeded"
@@ -662,6 +705,9 @@ AI summarization failed. This is fallback output.
 
 Reference:
 $CippReference
+
+Full Payload Blob:
+$PayloadBlobUrl
 
 Reference Payload Preview:
 $PayloadPreview
